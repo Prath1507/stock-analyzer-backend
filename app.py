@@ -1,3 +1,4 @@
+ 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,6 +11,9 @@ from services.scoring import calculate_score
 from services.analyst import get_analyst_data
 from services.news import get_stock_news
 from services.news_sentiment import analyze_sentiment
+from services.scanner_deep_swing import scan_swing_stocks
+from services.scanner_volume import scan_volume_swing_stocks
+from services.scanner_breakout import scan_breakout_stocks
 
 app = FastAPI()
 
@@ -24,12 +28,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # =========================================
 # HOME
 # =========================================
 @app.get("/")
 def home():
+
     return {
         "message": "Stock Analyzer Running"
     }
@@ -49,6 +53,7 @@ def analyze_stock(stock: str):
     daily_df, weekly_df, nifty_df = get_data(ticker)
 
     if daily_df.empty or weekly_df.empty:
+
         return {
             "error": "Stock not found"
         }
@@ -77,29 +82,30 @@ def analyze_stock(stock: str):
         indicators
     )
 
+
     # =========================================
-    # SWING SCORE
+    # ADVANCED SCORING ENGINE
     # =========================================
-    score = calculate_score(
+    score_data = calculate_score(
         indicators,
         pivots,
-        signal_data
+        signal_data,
+        daily_df
     )
 
-    # =========================================
-    # RATING ENGINE
-    # =========================================
-    if score >= 80:
-        rating = "STRONG BUY"
+    score = float(score_data["score"])
 
-    elif score >= 65:
-        rating = "BUY"
+    rating = score_data["rating"]
 
-    elif score >= 50:
-        rating = "HOLD"
+    overheated = bool(score_data["overheated"])
 
-    else:
-        rating = "AVOID"
+    parabolic_move = bool(
+        score_data["parabolic_move"]
+    )
+
+    distance_from_ma20 = float(
+        score_data["distance_from_ma20"]
+    )
 
     # =========================================
     # TREND ENGINE
@@ -129,44 +135,213 @@ def analyze_stock(stock: str):
     # =========================================
     return {
 
+        # =====================================
         # BASIC
+        # =====================================
         "stock": stock.upper(),
-        "price": indicators["price"],
 
+        "price": round(
+            float(indicators["price"]), 2
+        ),
+
+        # =====================================
         # RSI
-        "daily_rsi": indicators["daily_rsi"],
-        "weekly_rsi": indicators["weekly_rsi"],
+        # =====================================
+        "daily_rsi": round(
+            float(indicators["daily_rsi"]), 2
+        ),
 
+        "weekly_rsi": round(
+            float(indicators["weekly_rsi"]), 2
+        ),
+
+        # =====================================
         # MOMENTUM
-        "momentum_5d": indicators["momentum_5d"],
-        "relative_strength": indicators["relative_strength"],
+        # =====================================
+        "momentum_5d": round(
+            float(indicators["momentum_5d"]), 2
+        ),
 
+        "relative_strength": round(
+            float(indicators["relative_strength"]), 2
+        ),
+
+        # =====================================
         # PRICE ACTION
-        "close_strength": indicators["close_strength"],
-        "volume_ratio": indicators["volume_ratio"],
+        # =====================================
+        "close_strength": round(
+            float(indicators["close_strength"]), 2
+        ),
 
+        "volume_ratio": round(
+            float(indicators["volume_ratio"]), 2
+        ),
+
+        # =====================================
         # TREND
+        # =====================================
         "trend": trend,
 
-        # PIVOTS
-        "pivot_levels": pivots,
+        # =====================================
+        # PIVOT LEVELS
+        # =====================================
+        "pivot_levels": {
+            "pivot": round(
+                float(pivots["pivot"]), 2
+            ),
+            "r1": round(
+                float(pivots["r1"]), 2
+            ),
+            "r2": round(
+                float(pivots["r2"]), 2
+            ),
+            "s1": round(
+                float(pivots["s1"]), 2
+            ),
+            "s2": round(
+                float(pivots["s2"]), 2
+            ),
+        },
 
-        # BREAKOUT
+        # =====================================
+        # BREAKOUT SIGNAL
+        # =====================================
         "signal": signal_data["signal"],
-        "breakout": signal_data["breakout"],
-        "strong_breakout": signal_data["strong_breakout"],
-        "weak_breakout": signal_data["weak_breakout"],
 
-        # SCORE
-        "score": score,
+        # =====================================
+        # BREAKOUT LEVELS
+        # =====================================
+        "breakout_20d": bool(
+            signal_data["breakout_20d"]
+        ),
+
+        "breakout_3m": bool(
+            signal_data["breakout_3m"]
+        ),
+
+        "breakout_6m": bool(
+            signal_data["breakout_6m"]
+        ),
+
+        "breakout_1y": bool(
+            signal_data["breakout_1y"]
+        ),
+
+        "breakout_3y": bool(
+            signal_data["breakout_3y"]
+        ),
+
+        # =====================================
+        # SETUP ZONES
+        # =====================================
+        "near_52w": bool(
+            signal_data["near_52w"]
+        ),
+
+        "near_3y": bool(
+            signal_data["near_3y"]
+        ),
+
+        # =====================================
+        # TREND STRUCTURE
+        # =====================================
+        "bullish_trend": bool(
+            signal_data["bullish_trend"]
+        ),
+
+        "strong_uptrend": bool(
+            signal_data["strong_uptrend"]
+        ),
+
+        # =====================================
+        # QUALITY CHECKS
+        # =====================================
+        "fake_breakout": bool(
+            signal_data["fake_breakout"]
+        ),
+
+        "extended_move": bool(
+            signal_data["extended_move"]
+        ),
+
+        "explosive_candle": bool(
+            signal_data["explosive_candle"]
+        ),
+
+        # =====================================
+        # RESISTANCE LEVELS
+        # =====================================
+        "high_20d": round(
+            float(signal_data["high_20d"]), 2
+        ),
+
+        "high_3m": round(
+            float(signal_data["high_3m"]), 2
+        ),
+
+        "high_6m": round(
+            float(signal_data["high_6m"]), 2
+        ),
+
+        "high_1y": round(
+            float(signal_data["high_1y"]), 2
+        ),
+
+        "high_3y": round(
+            float(signal_data["high_3y"]), 2
+        ),
+
+        # =====================================
+        # SCORE & RATING
+        # =====================================
+        "score": round(score, 2),
+
         "rating": rating,
 
-        # ANALYST
+        # =====================================
+        # RISK ANALYSIS
+        # =====================================
+        "overheated": overheated,
+
+        "parabolic_move": parabolic_move,
+
+        "distance_from_ma20": round(
+            distance_from_ma20, 2
+        ),
+         
+        # =====================================
+        # ANALYST DATA
+        # =====================================
         "analyst": analyst_data,
 
+        # =====================================
         # NEWS
+        # =====================================
         "news": news_data,
 
-        # SENTIMENT
+        # =====================================
+        # NEWS SENTIMENT
+        # =====================================
         "news_sentiment": sentiment
+
+        
     }
+
+# =========================================
+# DEEP SWING SCANNER (ADDED ONLY)
+# =========================================
+@app.get("/scanner/deep-swing")
+def deep_swing_scanner():
+    return scan_swing_stocks()
+
+
+# =========================================
+# VOLUME SCANNER (ADDED ONLY)
+# =========================================
+@app.get("/scanner/volume")
+def volume_scanner():
+    return scan_volume_swing_stocks()
+
+@app.get("/scanner/breakout")
+def breakout_scanner():
+    return scan_breakout_stocks()
