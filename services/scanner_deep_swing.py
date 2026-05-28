@@ -50,6 +50,30 @@ def get_nse500():
 
 
 # ======================================
+# FIXED SAFE DATA EXTRACTOR (IMPORTANT)
+# ======================================
+def safe_extract(data, symbol):
+    try:
+        if symbol not in data:
+            return None
+
+        df = data[symbol]
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        df = df.dropna()
+
+        if len(df) == 0:
+            return None
+
+        return df
+
+    except:
+        return None
+
+
+# ======================================
 # FIXED NIFTY CHANGE
 # ======================================
 def get_nifty_change():
@@ -70,14 +94,9 @@ def get_nifty_change():
     df = df.reset_index()
 
     if 'Datetime' not in df.columns:
-        df.rename(
-            columns={'index': 'Datetime'},
-            inplace=True
-        )
+        df.rename(columns={'index': 'Datetime'}, inplace=True)
 
-    df['Date'] = pd.to_datetime(
-        df['Datetime']
-    ).dt.date
+    df['Date'] = pd.to_datetime(df['Datetime']).dt.date
 
     unique_dates = df['Date'].unique()
 
@@ -116,7 +135,7 @@ def bulk_download(symbols, period, interval):
 
 
 # ======================================
-# MAIN DEEP SWING SCANNER
+# MAIN DEEP SWING SCANNER (FIXED SAFETY ONLY)
 # ======================================
 def scan_swing_stocks():
 
@@ -124,10 +143,7 @@ def scan_swing_stocks():
 
     nifty_change = get_nifty_change()
 
-    print(
-        f"Nifty Daily Change: "
-        f"{round(nifty_change * 100, 2)}%\n"
-    )
+    print(f"Nifty Daily Change: {round(nifty_change * 100, 2)}%\n")
 
     stocks = get_nse500()
 
@@ -135,19 +151,11 @@ def scan_swing_stocks():
 
     print("Downloading Daily Data...")
 
-    daily_data = bulk_download(
-        symbols,
-        "6mo",
-        "1d"
-    )
+    daily_data = bulk_download(symbols, "6mo", "1d")
 
     print("Downloading Weekly Data...")
 
-    weekly_data = bulk_download(
-        symbols,
-        "1y",
-        "1wk"
-    )
+    weekly_data = bulk_download(symbols, "1y", "1wk")
 
     results = []
 
@@ -155,259 +163,97 @@ def scan_swing_stocks():
 
         try:
 
-            df = daily_data[symbol].dropna()
+            # ================= SAFE FIX =================
+            df = safe_extract(daily_data, symbol)
+            weekly = safe_extract(weekly_data, symbol)
 
-            weekly = weekly_data[symbol].dropna()
+            if df is None or weekly is None:
+                continue
 
             if len(df) < 60 or len(weekly) < 20:
                 continue
+            # ============================================
 
-            # ======================================
             # RSI
-            # ======================================
-            df['RSI'] = calculate_rsi(
-                df['Close']
-            )
-
-            weekly['RSI'] = calculate_rsi(
-                weekly['Close']
-            )
+            df['RSI'] = calculate_rsi(df['Close'])
+            weekly['RSI'] = calculate_rsi(weekly['Close'])
 
             rsi = df['RSI'].iloc[-1]
-
             weekly_rsi = weekly['RSI'].iloc[-1]
 
-            # ======================================
-            # PRICE
-            # ======================================
             price = df['Close'].iloc[-1]
-
             prev_close = df['Close'].iloc[-2]
 
-            stock_change = (
-                (price - prev_close) /
-                prev_close
-            )
-
-            relative_strength = (
-                stock_change - nifty_change
-            )
-
+            stock_change = (price - prev_close) / prev_close
+            relative_strength = stock_change - nifty_change
             daily_momentum = stock_change * 100
 
-            # ======================================
-            # MOVING AVERAGES
-            # ======================================
-            dma20 = (
-                df['Close']
-                .rolling(20)
-                .mean()
-                .iloc[-1]
-            )
+            dma20 = df['Close'].rolling(20).mean().iloc[-1]
+            dma50 = df['Close'].rolling(50).mean().iloc[-1]
 
-            dma50 = (
-                df['Close']
-                .rolling(50)
-                .mean()
-                .iloc[-1]
-            )
+            momentum_5d = (price - df['Close'].iloc[-6]) / df['Close'].iloc[-6]
+            momentum_5d_percent = momentum_5d * 100
 
-            # ======================================
-            # MOMENTUM
-            # ======================================
-            momentum_5d = (
-                (
-                    price -
-                    df['Close'].iloc[-6]
-                ) /
-                df['Close'].iloc[-6]
-            )
-
-            momentum_5d_percent = (
-                momentum_5d * 100
-            )
-
-            # ======================================
-            # CLOSE STRENGTH
-            # ======================================
             strength = close_strength(df)
 
-            # ======================================
-            # VOLUME
-            # ======================================
-            avg_volume_20 = (
-                df['Volume']
-                .rolling(20)
-                .mean()
-                .iloc[-1]
-            )
-
+            avg_volume_20 = df['Volume'].rolling(20).mean().iloc[-1]
             today_volume = df['Volume'].iloc[-1]
 
-            volume_ratio = (
-                today_volume /
-                (avg_volume_20 + 1e-9)
-            )
+            volume_ratio = today_volume / (avg_volume_20 + 1e-9)
 
-            # ======================================
-            # CORE SWING CONDITIONS
-            # ======================================
+            # CORE CONDITIONS (UNCHANGED)
             if (
-
-                # TREND
                 price > dma20 and
                 dma20 > dma50 and
-
-                # DAILY RSI
                 45 <= rsi <= 65 and
-
-                # WEEKLY RSI
                 50 <= weekly_rsi <= 65 and
-
-                # CLOSE STRENGTH
                 strength > 0.70 and
-
-                # RELATIVE STRENGTH
                 relative_strength > 0 and
-
-                # 5 DAY MOMENTUM
                 0 < momentum_5d_percent < 5 and
-
-                # 1 DAY MOMENTUM
                 0 < daily_momentum < 3
-
             ):
 
-                # ======================================
-                # SWING SCORE
-                # ======================================
                 score = (
-
                     relative_strength * 40 +
-
                     momentum_5d * 30 +
-
                     (rsi / 100) * 10 +
-
                     strength * 20
-
                 )
 
-                # ======================================
-                # STOCK TYPE
-                # ======================================
-                setup = "HEALTHY SWING"
-
-                if momentum_5d_percent > 4:
-                    setup = "STRONG MOMENTUM"
-
-                if volume_ratio > 2:
-                    setup = "HIGH VOLUME ACCUMULATION"
-
-                # ======================================
-                # APPEND RESULT
-                # ======================================
                 results.append({
-
                     "stock": symbol.replace(".NS", ""),
-
                     "price": round(float(price), 2),
-
-                    "daily_rsi": round(
-                        float(rsi), 2
-                    ),
-
-                    "weekly_rsi": round(
-                        float(weekly_rsi), 2
-                    ),
-
-                    "daily_change_percent": round(
-                        float(daily_momentum), 2
-                    ),
-
-                    "relative_strength_percent": round(
-                        float(relative_strength * 100), 2
-                    ),
-
-                    "momentum_5d_percent": round(
-                        float(momentum_5d_percent), 2
-                    ),
-
-                    "close_strength": round(
-                        float(strength), 2
-                    ),
-
-                    "today_volume": int(
-                        today_volume
-                    ),
-
-                    "avg_volume_20d": int(
-                        avg_volume_20
-                    ),
-
-                    "volume_ratio": round(
-                        float(volume_ratio), 2
-                    ),
-
-                    "swing_score": round(
-                        float(score), 2
-                    ),
-
-                    "setup": setup
+                    "daily_rsi": round(float(rsi), 2),
+                    "weekly_rsi": round(float(weekly_rsi), 2),
+                    "daily_change_percent": round(float(daily_momentum), 2),
+                    "relative_strength_percent": round(float(relative_strength * 100), 2),
+                    "momentum_5d_percent": round(float(momentum_5d_percent), 2),
+                    "close_strength": round(float(strength), 2),
+                    "today_volume": int(today_volume),
+                    "avg_volume_20d": int(avg_volume_20),
+                    "volume_ratio": round(float(volume_ratio), 2),
+                    "swing_score": round(float(score), 2),
+                    "setup": "HEALTHY SWING"
                 })
 
         except:
             continue
 
-    # ======================================
-    # RESULT DATAFRAME
-    # ======================================
     result_df = pd.DataFrame(results)
 
     if result_df.empty:
-
         return {
-
             "scanner": "Deep Swing",
-
-            "nifty_change": round(
-                float(nifty_change * 100), 2
-            ),
-
+            "nifty_change": round(float(nifty_change * 100), 2),
             "total_stocks_found": 0,
-
             "stocks": []
         }
 
-    # ======================================
-    # SORTING
-    # ======================================
-    result_df = result_df.sort_values(
-        "swing_score",
-        ascending=False
-    )
+    result_df = result_df.sort_values("swing_score", ascending=False)
 
-    # ======================================
-    # TOP STOCKS
-    # ======================================
-    top_stocks = result_df.head(5)
-
-    # ======================================
-    # RETURN JSON
-    # ======================================
     return {
-
         "scanner": "Deep Swing",
-
-        "nifty_change": round(
-            float(nifty_change * 100), 2
-        ),
-
-        "total_stocks_found": int(
-            len(result_df)
-        ),
-
-        "stocks": top_stocks.to_dict(
-            orient="records"
-        )
+        "nifty_change": round(float(nifty_change * 100), 2),
+        "total_stocks_found": int(len(result_df)),
+        "stocks": result_df.head(5).to_dict(orient="records")
     }
