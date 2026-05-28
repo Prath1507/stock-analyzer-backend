@@ -41,12 +41,9 @@ def close_strength(df):
 # GET NSE500 LIST
 # ======================================
 def get_nse500():
-
-    url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
-
+    url = "https://raw.githubusercontent.com/rprasad2020/nse-indices/main/nifty500list.csv"
     df = pd.read_csv(url)
-
-    return df['Symbol'].tolist()
+    return df["Symbol"].tolist()
 
 
 # ======================================
